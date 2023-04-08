@@ -25,12 +25,10 @@ if(
     message(FATAL_ERROR "The submodules were not downloaded! GIT_SUBMODULE was turned off or failed. Please update submodules and try again.")
 endif()
 
-
 # add dependencies which are already cmake
 add_subdirectory(xtl)
-add_subdirectory(xtensor)
 add_subdirectory(xsimd)
-
+add_subdirectory(xtensor)
 
 # add simple integration for header-only stb
 add_library(stb INTERFACE)

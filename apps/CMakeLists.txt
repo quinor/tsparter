@@ -10,7 +10,7 @@ set(apps
     main.cc
 )
 
-set(libraries gui)
+set(libraries gui tsparter)
 
 # Create each app into a binary with the same name.
 # Have the binaries be outputted to the main directory of the project

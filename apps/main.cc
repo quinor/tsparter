@@ -1,6 +1,30 @@
 #include "gui.hh"
 
 
+
+// int width, height, nrChannels;
+// unsigned char *data = stbi_load("container.jpg", &width, &height, &nrChannels, 0);
+// stbi_image_free(data);
+// glGenTextures(1, &texture);
+
+void load_texture_from_data(unsigned int texture, const uint8_t* data, int w, int h)
+{
+    // bind the texture
+    glBindTexture(GL_TEXTURE_2D, texture);
+
+    // set the texture wrapping/filtering options (on the currently bound texture object)
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+    // load and generate the texture
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
+    glGenerateMipmap(GL_TEXTURE_2D);
+}
+
+
+
 int main ()
 {
     auto draw = [&](ImGuiIO& io)
