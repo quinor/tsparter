@@ -1,42 +1,32 @@
-# Automatically update submodules as needed
-find_package(Git QUIET)
-if(GIT_FOUND AND EXISTS "${PROJECT_SOURCE_DIR}/.git")
-    option(GIT_SUBMODULE "Check submodules during build" ON)
-    if(GIT_SUBMODULE)
-        message(STATUS "Submodule update")
-        execute_process(COMMAND ${GIT_EXECUTABLE} submodule update --init --recursive
-                        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-                        RESULT_VARIABLE GIT_SUBMOD_RESULT)
-        if(NOT GIT_SUBMOD_RESULT EQUAL "0")
-            message(FATAL_ERROR "git submodule update --init --recursive failed with ${GIT_SUBMOD_RESULT}, please checkout submodules")
-        endif()
-    endif()
-endif()
+include(FetchContent)
 
-
-# test for all dependencies
-if(
-    NOT EXISTS "${PROJECT_SOURCE_DIR}/deps/xtl/CMakeLists.txt" OR
-    NOT EXISTS "${PROJECT_SOURCE_DIR}/deps/xtensor/CMakeLists.txt" OR
-    NOT EXISTS "${PROJECT_SOURCE_DIR}/deps/xsimd/CMakeLists.txt" OR
-    NOT EXISTS "${PROJECT_SOURCE_DIR}/deps/imgui/imgui.h" OR
-    NOT EXISTS "${PROJECT_SOURCE_DIR}/deps/stb/stb_image.h" # arbitrary file
+FetchContent_Declare(
+  Eigen
+  GIT_REPOSITORY    https://gitlab.com/libeigen/eigen.git
+  GIT_TAG           master #3.4.0
 )
-    message(FATAL_ERROR "The submodules were not downloaded! GIT_SUBMODULE was turned off or failed. Please update submodules and try again.")
-endif()
+FetchContent_MakeAvailable(Eigen)
 
-# add dependencies which are already cmake
-add_subdirectory(xtl)
-add_subdirectory(xsimd)
-add_subdirectory(xtensor)
+FetchContent_Declare(
+  imgui
+  GIT_REPOSITORY https://github.com/ocornut/imgui.git
+  GIT_TAG        v1.89.4
+)
+
+FetchContent_Declare(
+  stb
+  GIT_REPOSITORY https://github.com/nothings/stb.git
+  GIT_TAG        5736b15f7ea0ffb08dd38af21067c314d6a3aae9
+)
+
+FetchContent_MakeAvailable(Eigen imgui stb)
 
 # add simple integration for header-only stb
 add_library(stb INTERFACE)
-target_include_directories(stb INTERFACE ${CMAKE_CURRENT_LIST_DIR}/stb)
+target_include_directories(stb INTERFACE ${stb_SOURCE_DIR})
 
 
 # add more involved integration for imgui
-set (imgui_SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/imgui)
 add_library(imgui STATIC
     ${imgui_SOURCE_DIR}/imgui.h
     ${imgui_SOURCE_DIR}/imgui_internal.h

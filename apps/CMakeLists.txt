@@ -2,7 +2,7 @@ add_library(gui STATIC
     gui.cc
     gui.hh
 )
-target_link_libraries(gui imgui imgui_backend)
+target_link_libraries(gui imgui imgui_backend Eigen3::Eigen tsparter)
 
 
 # spawn applications

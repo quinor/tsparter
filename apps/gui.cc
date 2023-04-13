@@ -1,3 +1,4 @@
+#include "gui.hh"
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_opengl3.h>
@@ -7,15 +8,60 @@
 #endif
 #include <GLFW/glfw3.h> // Will drag system OpenGL headers
 #include <cstdio>
-#include <functional>
 
 static void glfw_error_callback(int error, const char* description)
 {
     fprintf(stderr, "GLFW Error %d: %s\n", error, description);
 }
 
-// Main code
-int window_loop(const char* window_name, std::function<void(ImGuiIO&)> draw)
+#define GL_CALL(_CALL)      do { _CALL; GLenum gl_err = glGetError(); if (gl_err != 0) fprintf(stderr, "GL error 0x%x returned from '%s'.\n", gl_err, #_CALL); } while (0)  // Call with error check
+
+void generate_textures(int n, unsigned int* textures)
+{
+    GL_CALL(glGenTextures(n, textures));
+}
+
+void load_texture_from_tensor(unsigned int texture, const Eigen::Tensor<uint8_t, 3>& data)
+{
+    if (data.dimension(0) != 3)
+    {
+        printf("ERROR: w=%d, h=%d, c=%d is not a valid texture shape\n",
+            data.dimension(1), data.dimension(2), data.dimension(0));
+        std::exit(-1);
+    }
+
+    int old_tex;
+    // save old texture
+    GL_CALL(glGetIntegerv(GL_TEXTURE_BINDING_2D, &old_tex));
+
+    // bind the texture
+    GL_CALL(glBindTexture(GL_TEXTURE_2D, texture));
+
+    // set the texture wrapping/filtering options (on the currently bound texture object)
+    GL_CALL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE));
+    GL_CALL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE));
+    GL_CALL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
+    GL_CALL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR));
+
+    // load and generate the texture
+    GL_CALL(glTexImage2D(
+        GL_TEXTURE_2D, 0, GL_RGB,
+        data.dimension(1), data.dimension(2), 0, GL_RGB,
+        GL_UNSIGNED_BYTE, nullptr
+    ));
+
+    for (int i=0; i<data.dimension(2); i++)
+        GL_CALL(glTexSubImage2D(
+            GL_TEXTURE_2D, 0,
+            0, i, data.dimension(1), 1, GL_RGB,
+            GL_UNSIGNED_BYTE, &data(0, 0, i)
+        ));
+
+    // restore old texture
+    GL_CALL(glBindTexture(GL_TEXTURE_2D, old_tex));
+}
+
+int window_loop(const char* window_name, std::function<void()> init, std::function<void()> draw)
 {
     glfwSetErrorCallback(glfw_error_callback);
     if (!glfwInit())
@@ -77,12 +123,13 @@ int window_loop(const char* window_name, std::function<void(ImGuiIO&)> draw)
     // - Our Emscripten build process allows embedding fonts to be accessible at runtime from the "fonts/" folder. See Makefile.emscripten for details.
     //io.Fonts->AddFontDefault();
     //io.Fonts->AddFontFromFileTTF("c:\\Windows\\Fonts\\segoeui.ttf", 18.0f);
-    //io.Fonts->AddFontFromFileTTF("../../misc/fonts/DroidSans.ttf", 16.0f);
+    io.Fonts->AddFontFromFileTTF("misc/DejaVuSans.ttf", 16.0f);
     //io.Fonts->AddFontFromFileTTF("../../misc/fonts/Roboto-Medium.ttf", 16.0f);
     //io.Fonts->AddFontFromFileTTF("../../misc/fonts/Cousine-Regular.ttf", 15.0f);
     //ImFont* font = io.Fonts->AddFontFromFileTTF("c:\\Windows\\Fonts\\ArialUni.ttf", 18.0f, NULL, io.Fonts->GetGlyphRangesJapanese());
     //IM_ASSERT(font != NULL);
 
+    init();
 
     ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
     // Main loop
@@ -100,7 +147,7 @@ int window_loop(const char* window_name, std::function<void(ImGuiIO&)> draw)
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
-        draw(io);
+        draw();
 
         // Rendering
         ImGui::Render();
