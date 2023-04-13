@@ -248,9 +248,9 @@ inline void upscale(const Tensor3f& input, Tensor3f& output) noexcept
         size_t W = output.dimension(1), H = output.dimension(2);
         size_t W2 = input.dimension(1), H2 = input.dimension(2);
 
-        // I ignore the borders. Fuck the borders. TODO don't fuck.
-        const float* src = input.data();
         float* dst = output.data();
+        const float* src = input.data();
+
         #pragma omp parallel for
         for (size_t i=1; i<2*H2-1; i+=2)
             for (size_t j=1; j<2*W2-1; j+=2)
@@ -266,6 +266,49 @@ inline void upscale(const Tensor3f& input, Tensor3f& output) noexcept
                 store_op<OP>(lu*d3 + ru*d1 + ld*d9 + rd*d3, dst + j + (i+1)*W);
                 store_op<OP>(lu*d1 + ru*d3 + ld*d3 + rd*d9, dst + j+1 + (i+1)*W);
             }
+
+        // I don't ignore the borders. It's annoying.
+        store_op<OP>(src[0 + 0*W2], dst + 0 + 0*W);
+        if (W%2 == 0) store_op<OP>(src[W2-1 + 0*W2], dst + W-1 + 0*W);
+        if (H%2 == 0) store_op<OP>(src[0 + (H2-1)*W2], dst + 0 + (H-1)*W);
+        if (W%2 == 0 && H%2 == 0) store_op<OP>(src[W2-1 + (H2-1)*W2], dst + W-1 + (H-1)*W);
+
+        for (size_t j=1; j<2*W2-1; j+=2)
+        {
+            float l, r;
+            const float d3 = 3.f/4.f, d1 = 1.f/4.f;
+
+            l = src[j/2 + 0*W2];
+            r = src[j/2+1 + 0*W2];
+            store_op<OP>(l*d3 + r*d1, dst + j + 0*W);
+            store_op<OP>(l*d1 + r*d3, dst + j+1 + 0*W);
+
+            if (H%2 == 0)
+            {
+                l = src[j/2 + (H2-1)*W2];
+                r = src[j/2+1 + (H2-1)*W2];
+                store_op<OP>(l*d3 + r*d1, dst + j + (H-1)*W);
+                store_op<OP>(l*d1 + r*d3, dst + j+1 + (H-1)*W);
+            }
+        }
+        for (size_t i=1; i<2*H2-1; i+=2)
+        {
+            float u, d;
+            const float d3 = 3.f/4.f, d1 = 1.f/4.f;
+
+            u = src[0 + (i/2)*W2];
+            d = src[0 + (i/2+1)*W2];
+            store_op<OP>(u*d3 + d*d1, dst + 0 + i*W);
+            store_op<OP>(u*d1 + d*d3, dst + 0 + (i+1)*W);
+
+            if (W%2 == 0)
+            {
+                u = src[W2-1 + (i/2)*W2];
+                d = src[W2-1 + (i/2+1)*W2];
+                store_op<OP>(u*d3 + d*d1, dst + W-1 + i*W);
+                store_op<OP>(u*d1 + d*d3, dst + W-1 + (i+1)*W);
+            }
+        }
     }
     else
     {
@@ -275,10 +318,9 @@ inline void upscale(const Tensor3f& input, Tensor3f& output) noexcept
         size_t W = output.dimension(1), H = output.dimension(2);
         size_t W2 = input.dimension(1), H2 = input.dimension(2);
 
-        const float* src = input.data();
         float* dst = output.data();
+        const float* src = input.data();
 
-        // I ignore the borders. Fuck the borders. TODO don't fuck.
         #pragma omp parallel for
         for (size_t i=1; i<2*H2-1; i+=2)
             for (size_t j=1; j<2*W2-1; j+=2)
@@ -295,6 +337,56 @@ inline void upscale(const Tensor3f& input, Tensor3f& output) noexcept
                     mm256_store_op<OP>(lu*d3 + ru*d1 + ld*d9 + rd*d3, dst + k + j*M + (i+1)*M*W);
                     mm256_store_op<OP>(lu*d1 + ru*d3 + ld*d3 + rd*d9, dst + k + (j+1)*M + (i+1)*M*W);
                 }
+
+        // I don't ignore the borders. It's annoying.
+        for (size_t k=0; k<M; k+=8)
+        {
+            mm256_store_op<OP>(
+                _mm256_load_ps(src + k + M*(0 + 0*W2)), dst + k + M*(0 + 0*W));
+            if (W%2 == 0) mm256_store_op<OP>(
+                _mm256_load_ps(src + k + M*(W2-1 + 0*W2)), dst + k + M*(W-1 + 0*W));
+            if (H%2 == 0) mm256_store_op<OP>(
+                _mm256_load_ps(src + k + M*(0 + (H2-1)*W2)), dst + k + M*(0 + (H-1)*W));
+            if (W%2 == 0 && H%2 == 0) mm256_store_op<OP>(
+                _mm256_load_ps(src + k + M*(W2-1 + (H2-1)*W2)), dst + k + M*(W-1 + (H-1)*W));
+
+            for (size_t j=1; j<2*W2-1; j+=2)
+            {
+                __m256 l, r;
+                const float d3 = 3.f/4.f, d1 = 1.f/4.f;
+
+                l = _mm256_load_ps(src + k + M*(j/2 + 0*W2));
+                r = _mm256_load_ps(src + k + M*(j/2+1 + 0*W2));
+                mm256_store_op<OP>(l*d3 + r*d1, dst + k + M*(j + 0*W));
+                mm256_store_op<OP>(l*d1 + r*d3, dst + k + M*(j+1 + 0*W));
+
+                if (H%2 == 0)
+                {
+                    l = _mm256_load_ps(src + k + M*(j/2 + (H2-1)*W2));
+                    r = _mm256_load_ps(src + k + M*(j/2+1 + (H2-1)*W2));
+                    mm256_store_op<OP>(l*d3 + r*d1, dst + k + M*(j + (H-1)*W));
+                    mm256_store_op<OP>(l*d1 + r*d3, dst + k + M*(j+1 + (H-1)*W));
+                }
+            }
+            for (size_t i=1; i<2*H2-1; i+=2)
+            {
+                __m256 u, d;
+                const float d3 = 3.f/4.f, d1 = 1.f/4.f;
+
+                u = _mm256_load_ps(src + k + M*(0 + (i/2)*W2));
+                d = _mm256_load_ps(src + k + M*(0 + (i/2+1)*W2));
+                mm256_store_op<OP>(u*d3 + d*d1, dst + k + M*(0 + i*W));
+                mm256_store_op<OP>(u*d1 + d*d3, dst + k + M*(0 + (i+1)*W));
+
+                if (W%2 == 0)
+                {
+                    u = _mm256_load_ps(src + k + M*(W2-1 + (i/2)*W2));
+                    d = _mm256_load_ps(src + k + M*(W2-1 + (i/2+1)*W2));
+                    mm256_store_op<OP>(u*d3 + d*d1, dst + k + M*(W-1 + i*W));
+                    mm256_store_op<OP>(u*d1 + d*d3, dst + k + M*(W-1 + (i+1)*W));
+                }
+            }
+        }
     }
 }
 

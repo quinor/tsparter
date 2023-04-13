@@ -29,7 +29,7 @@ public:
         auto elapsed = (end - _start)/1ms;
 
         // don't clog with short ones
-        if (elapsed < 5)
+        if (elapsed < 5 || !PRINT_TIMINGS)
             return;
 
         std::cout << _label << ": elapsed " << elapsed << " miliseconds" << std::endl;
@@ -45,7 +45,9 @@ public:
             prev = e.first;
         }
     }
+
 private:
+    const static bool PRINT_TIMINGS=false;
     const time_point _start;
     std::string _label;
     std::vector<std::pair<time_point, std::string>> _intermediate;

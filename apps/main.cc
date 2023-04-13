@@ -105,7 +105,10 @@ int main (int argc, char** argv)
             if (ImGui::IsItemHovered())
                 temp_big_display_idx = 1;
 
-            const float alpha_slide_default = 0, beta_slide_default = 0, sigma_slide_default = 1;
+            const float
+                alpha_slide_default = 0,
+                beta_slide_default = 0,
+                sigma_slide_default = 1;
             static float
                 alpha_slide = alpha_slide_default,
                 beta_slide = beta_slide_default,
