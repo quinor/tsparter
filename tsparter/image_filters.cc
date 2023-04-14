@@ -1,6 +1,6 @@
 #include "tsparter/image_filters.hh"
 #include "tsparter/timeit.hh"
-#include "misc/avx_mathfun.h"
+#include "external/avx_mathfun.h"
 
 #include <cmath>
 #include <x86intrin.h>
@@ -10,37 +10,6 @@ namespace ta
 
 namespace
 {
-
-
-using Tensor3i = Eigen::Tensor<uint8_t, 3>;
-using Tensor3f = Eigen::Tensor<float, 3>;
-
-
-inline Tensor3f img_to_grayscale(const Tensor3i& e) noexcept
-{
-    ta::Timeit time("img_to_grayscale");
-    return e
-        .template cast<float>()
-        .mean(Eigen::array<Eigen::Index, 1>{0})
-        .reshape(Eigen::array<Eigen::Index, 3>{1, e.dimension(1), e.dimension(2)})
-        .unaryExpr([](float val) {
-            return val/255.f;
-            // return log(1.f+val)/log(256.f);
-        });
-}
-
-inline Tensor3i to_img(const Tensor3f& e) noexcept
-{
-    ta::Timeit time("to_img");
-    return e
-        .unaryExpr([](float val) {
-            float tmp = val < 0.f ? 0.f : (val > 1.f ? 1.f : val);
-            return tmp*255.f;
-            // return exp(tmp*log(256.f))-1;
-        })
-        .template cast<uint8_t>()
-        .broadcast(Eigen::array<Eigen::Index, 3>{3, 1, 1});
-}
 
 template <size_t M>
 inline Tensor3f remap(const Tensor3f& e, const Tensor3f& m, float sigma, float alpha, float beta) noexcept
@@ -412,8 +381,8 @@ inline void combine(const Tensor3f& transformed, Tensor3f& base)
     }
 }
 
-Eigen::Tensor<uint8_t, 3> pyramid(
-    const Eigen::Tensor<uint8_t, 3>& input, float sigma, float alpha, float beta)
+Tensor3f pyramid(
+    const Tensor3f& input, float sigma, float alpha, float beta)
 {
     ta::Timeit time("pyramid");
     const size_t N = 12;
@@ -430,9 +399,9 @@ Eigen::Tensor<uint8_t, 3> pyramid(
 
     time.checkpoint("nothing");
 
-    stack_base.push_back(img_to_grayscale(input));
+    stack_base.push_back(input);
     stack_transformed.push_back(remap<M>(
-        stack_base[0],
+        input,
         mids,
         sigma, alpha, beta
     ));
@@ -455,10 +424,10 @@ Eigen::Tensor<uint8_t, 3> pyramid(
     time.checkpoint("collapse");
 
     const Tensor3f& ret = stack_base[0];
-    return to_img(ret.slice(
+    return ret.slice(
         Eigen::array<Eigen::Index, 3>{0, 0, 0},
         Eigen::array<Eigen::Index, 3>{1, ret.dimension(1), ret.dimension(2)}
-    ));
+    );
 }
 
 }

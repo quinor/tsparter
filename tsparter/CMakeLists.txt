@@ -7,8 +7,12 @@ add_library(tsparter
 
     include/tsparter/image_util.hh
     include/tsparter/image_filters.hh
+    include/tsparter/image_bits.hh
     include/tsparter/timeit.hh
-    misc/avx_mathfun.h
+    include/external/tinyfiledialogs.h
+
+    external/avx_mathfun.h
+    external/tinyfiledialogs.c
 )
 target_include_directories(tsparter PRIVATE .)
 target_include_directories(tsparter PUBLIC include)

@@ -1,6 +1,7 @@
 #include "gui.hh"
 #include <tsparter/image_util.hh>
 #include <tsparter/image_filters.hh>
+#include <external/tinyfiledialogs.h>
 #include <future>
 
 
@@ -38,21 +39,16 @@ int main (int argc, char** argv)
 {
     unsigned int textures[3];
 
-    Eigen::Tensor<uint8_t, 3> image_raw;
-    Eigen::Tensor<uint8_t, 3> image_filtered;
-    // Eigen::Tensor<uint8_t, 3> image_output;
+    Tensor3f image_raw;
+    Tensor3f image_filtered;
+    // Tensor3f image_output;
     ImVec2 image_shape = {1, 1};
 
     auto recompute_raw = [&](const char* filename)
     {
-        image_raw = ta::load_image(filename);
+        image_raw = ta::img_to_grayscale(ta::load_image(filename));
         image_shape = {(float)image_raw.dimension(1), (float)image_raw.dimension(2)};
-        load_texture_from_tensor(textures[0], image_raw);
-    };
-
-    auto recompute_filtered = [&](float sigma, float alpha, float beta)
-    {
-        return ta::pyramid(image_raw, sigma, alpha, beta);
+        load_texture_from_tensor(textures[0], ta::to_img(image_raw));
     };
 
     auto init = [&]()
@@ -62,9 +58,6 @@ int main (int argc, char** argv)
         load_texture_from_tensor(textures[0], empty);
         load_texture_from_tensor(textures[1], empty);
         load_texture_from_tensor(textures[2], empty);
-
-        recompute_raw(argc == 1 ? "res/klaudia.jpg" : argv[1]);
-        // recompute_filtered();
     };
 
     auto draw = [&]()
@@ -88,13 +81,69 @@ int main (int argc, char** argv)
             (ImGui::GetContentRegionAvail().y - 2*ImGui::GetStyle().ItemSpacing.y)/3.f
         };
 
+        static bool image_load_dirty = true;
+        static bool pyramid_dirty = true;
 
         if(ImGui::BeginChild("loading", child_window_size, true, ImGuiWindowFlags_None))
         {
+            bool show_file_dialog = false;
+
             if(show_image_button("loading", textures[0], {ImGui::GetContentRegionAvail().x, 120}, image_shape))
                 big_display_idx = 0;
+
+            if (ImGui::IsMouseDoubleClicked(0))
+                show_file_dialog = true;
             if (ImGui::IsItemHovered())
                 temp_big_display_idx = 0;
+
+            static std::string filepath = argc == 1 ? "res/klaudia.jpg" : argv[1];
+            size_t from;
+            for (
+                from = filepath.size()-1;
+                from>0 && filepath[from] != '/' && filepath[from] != '\\'; from--
+            );
+            if (from == 0 || from == filepath.size() - 1)
+                from = 0;
+            else
+                from++;
+
+            std::string filename = filepath.substr(from, filepath.size()-from);
+
+            static bool image_load_dirty = true;
+
+            if (ImGui::Button(filename.c_str(), {ImGui::GetContentRegionAvail().x, 0}))
+                show_file_dialog = true;
+
+            if (show_file_dialog)
+            {
+                static std::vector<const char*> filePatterns = {
+                    "*.png", "*.jpg", "*.jpeg", "*.bmp",
+                    "*.PNG", "*.JPG", "*.JPEG", "*.BMP"
+                };
+
+                auto result = tinyfd_openFileDialog(
+                        "Choose an image",
+                        ".",
+                        filePatterns.size(),
+                        filePatterns.data(),
+                        "Images",
+                        0
+                );
+
+                if (result != nullptr)
+                {
+                    filepath = result;
+                    image_load_dirty = true;
+                }
+            }
+
+            if (image_load_dirty)
+            {
+                // Needs not to be async because it's fast? IDK if it will hold
+                recompute_raw(filepath.c_str());
+                image_load_dirty = false;
+                pyramid_dirty = true;
+            }
         }
         ImGui::EndChild();
 
@@ -110,9 +159,9 @@ int main (int argc, char** argv)
                 beta_slide_default = 0,
                 sigma_slide_default = 1;
             static float
-                alpha_slide = alpha_slide_default,
-                beta_slide = beta_slide_default,
-                sigma_slide = sigma_slide_default;
+                alpha_slide = 1,
+                beta_slide = -1,
+                sigma_slide = 2;
 
             bool changed = false;
 
@@ -120,46 +169,56 @@ int main (int argc, char** argv)
             ImGui::SameLine();
             if (ImGui::Button("texture", {ImGui::GetContentRegionAvail().x, 0}))
                 alpha_slide = alpha_slide_default, changed = true;
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("click to reset the slider");
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip(
+                "Click to reset the slider.\n\n"
+                "Manipulate the strength of fine details in the image."
+            );
 
             changed |= ImGui::SliderFloat("##beta", &beta_slide, -1.f, 1.0f, "%.2f", slider_flags);
             ImGui::SameLine();
             if (ImGui::Button("clarity", {ImGui::GetContentRegionAvail().x, 0}))
                 beta_slide = beta_slide_default, changed = true;
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("click to reset the slider");
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip(
+                "Click to reset the slider.\n\n"
+                "Manipulate the dynamic range of big features in the image"
+            );
 
             changed |= ImGui::SliderFloat("##sigma", &sigma_slide, 0, 2.f, "%.2f", slider_flags);
             ImGui::SameLine();
-            if (ImGui::Button("cutoff", {ImGui::GetContentRegionAvail().x, 0}))
+            if (ImGui::Button("threshold", {ImGui::GetContentRegionAvail().x, 0}))
                 sigma_slide = sigma_slide_default, changed = true;
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("click to reset the slider");
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip(
+                "Click to reset the slider.\n\n"
+                "Choose the threshold between what's considered a detail (affected by texture)\n"
+                "and what's a big feature (affected by clarity)"
+            );
 
             float sigma = sigma_slide*0.15;
             float alpha = expf(-alpha_slide*logf(4));
             float beta = beta_slide + 1;
 
-            static std::future<Eigen::Tensor<uint8_t, 3>> done;
-            static bool dirty = true;
+            static std::future<Tensor3f> done;
             static bool waiting = false;
 
             if (changed)
             {
                 big_display_idx = 1;
-                dirty = true;
+                pyramid_dirty = true;
             }
 
             if (!done.valid() || done.wait_for(0s) == std::future_status::ready)
             {
                 if (waiting)
                 {
-                    load_texture_from_tensor(textures[1], done.get());
+                    image_filtered = done.get();
+                    load_texture_from_tensor(textures[1], ta::to_img(image_filtered));
                     waiting = false;
                 }
-                if (dirty)
+                if (pyramid_dirty)
                 {
-                    done = std::async(std::launch::async, recompute_filtered, sigma, alpha, beta);
+                    done = std::async(std::launch::async, ta::pyramid, image_raw, sigma, alpha, beta);
                     waiting = true;
-                    dirty = false;
+                    pyramid_dirty = false;
                 }
 
             }
