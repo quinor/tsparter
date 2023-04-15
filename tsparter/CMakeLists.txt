@@ -3,10 +3,12 @@ find_package(OpenMP REQUIRED)
 add_library(tsparter
     stb_impl.cc
     image_util.cc
-    image_filters.cc
+    image_pyramid.cc
+    image_tone_mapping.cc
 
     include/tsparter/image_util.hh
-    include/tsparter/image_filters.hh
+    include/tsparter/image_pyramid.hh
+    include/tsparter/image_tone_mapping.hh
     include/tsparter/image_bits.hh
     include/tsparter/timeit.hh
     include/external/tinyfiledialogs.h

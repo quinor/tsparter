@@ -1,4 +1,4 @@
-#include "tsparter/image_filters.hh"
+#include "tsparter/image_pyramid.hh"
 #include "tsparter/timeit.hh"
 #include "external/avx_mathfun.h"
 

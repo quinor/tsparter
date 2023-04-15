@@ -123,11 +123,19 @@ int window_loop(const char* window_name, std::function<void()> init, std::functi
     // - Our Emscripten build process allows embedding fonts to be accessible at runtime from the "fonts/" folder. See Makefile.emscripten for details.
     //io.Fonts->AddFontDefault();
     //io.Fonts->AddFontFromFileTTF("c:\\Windows\\Fonts\\segoeui.ttf", 18.0f);
-    io.Fonts->AddFontFromFileTTF("misc/DejaVuSans.ttf", 16.0f);
     //io.Fonts->AddFontFromFileTTF("../../misc/fonts/Roboto-Medium.ttf", 16.0f);
     //io.Fonts->AddFontFromFileTTF("../../misc/fonts/Cousine-Regular.ttf", 15.0f);
     //ImFont* font = io.Fonts->AddFontFromFileTTF("c:\\Windows\\Fonts\\ArialUni.ttf", 18.0f, NULL, io.Fonts->GetGlyphRangesJapanese());
     //IM_ASSERT(font != NULL);
+
+    const size_t font_sizes[] = {14, 16, 18, 20, 22, 24, 28, 32, 36, 40};
+    const size_t n_font_sizes = sizeof(font_sizes)/sizeof(size_t);
+    ImFont* fonts[n_font_sizes];
+
+    for (size_t i=0; i<n_font_sizes; i++)
+        fonts[i] = io.Fonts->AddFontFromFileTTF("misc/DejaVuSans.ttf", font_sizes[i]);
+
+    io.FontDefault = fonts[0];
 
     init();
 
@@ -135,6 +143,15 @@ int window_loop(const char* window_name, std::function<void()> init, std::functi
     // Main loop
     while (!glfwWindowShouldClose(window))
     {
+        // poor man's DPI scaling
+        int desired_font_size = std::max(std::min(io.DisplaySize.x, io.DisplaySize.y)/60.f, 14.f);
+        for (size_t i=0; i<n_font_sizes; i++)
+            if (font_sizes[i] >= desired_font_size || i == n_font_sizes-1)
+            {
+                io.FontDefault = fonts[i];
+                break;
+            }
+
         // Poll and handle events (inputs, window resize, etc.)
         // You can read the io.WantCaptureMouse, io.WantCaptureKeyboard flags to tell if dear imgui wants to use your inputs.
         // - When io.WantCaptureMouse is true, do not dispatch mouse input data to your main application, or clear/overwrite your copy of the mouse data.
@@ -159,6 +176,10 @@ int window_loop(const char* window_name, std::function<void()> init, std::functi
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
         glfwSwapBuffers(window);
+
+        ImGui::GetStyle() = ImGuiStyle();
+        // printf("font size: %f\n", ImGui::GetFontSize());
+        ImGui::GetStyle().ScaleAllSizes(ImGui::GetFontSize()/18.f);
     }
 
     // Cleanup
