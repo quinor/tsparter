@@ -52,8 +52,8 @@ int main (int argc, char** argv)
     unsigned int textures[3];
 
     Tensor3f image_raw;
-    Tensor3f image_mapped;
     Tensor3f image_filtered;
+    Tensor3f image_mapped;
     // Tensor3f image_output;
     ImVec2 image_shape = {1, 1};
 
@@ -85,19 +85,14 @@ int main (int argc, char** argv)
 
         ImGui::BeginGroup();
 
-        ImVec2 child_window_size = {
-            18*em,
-            (ImGui::GetContentRegionAvail().y - 2*ImGui::GetStyle().ItemSpacing.y)/3.f
-        };
-
         static int big_display_idx = 0;
         int temp_big_display_idx = -1;
 
         static bool image_load_dirty = true;
-        static bool image_process_dirty = false;
         static bool pyramid_dirty = false;
+        static bool mapping_dirty = false;
 
-        if(ImGui::BeginChild("loading", child_window_size, true, ImGuiWindowFlags_None))
+        if(ImGui::BeginChild("loading", {18*em, 9*em}, true, ImGuiWindowFlags_None))
         {
             bool show_file_dialog = false;
 
@@ -148,99 +143,19 @@ int main (int argc, char** argv)
                 }
             }
 
-            const float
-                exposure_slide_default = 0,
-                contrast_slide_default = 0,
-                blacks_slide_default = 0,
-                shadows_slide_default = 0,
-                highlights_slide_default = 0,
-                whites_slide_default = 0;
-            static float
-                exposure_slide = 0,
-                contrast_slide = 0,
-                blacks_slide = 0,
-                shadows_slide = 0,
-                highlights_slide = 0,
-                whites_slide = 0;
-
-            bool changed = false;
-
-            changed |= show_slider(
-                "exposure", &exposure_slide,
-                -1.f, 1.0f, exposure_slide_default,
-                "Double click on the label to reset the slider."
-            );
-
-            changed |= show_slider(
-                "contrast", &contrast_slide,
-                -1.f, 1.0f, contrast_slide_default,
-                "Double click on the label to reset the slider."
-            );
-
-            changed |= show_slider(
-                "blacks", &blacks_slide,
-                -1.f, 1.0f, blacks_slide_default,
-                "Double click on the label to reset the slider."
-            );
-
-            changed |= show_slider(
-                "shadows", &shadows_slide,
-                -1.f, 1.0f, shadows_slide_default,
-                "Double click on the label to reset the slider."
-            );
-
-            changed |= show_slider(
-                "highlights", &highlights_slide,
-                -1.f, 1.0f, highlights_slide_default,
-                "Double click on the label to reset the slider."
-            );
-
-            changed |= show_slider(
-                "whites", &whites_slide,
-                -1.f, 1.0f, whites_slide_default,
-                "Double click on the label to reset the slider."
-            );
-
-            if (changed)
-            {
-                big_display_idx = 0;
-                image_process_dirty = true;
-            }
-
             // Needs not to be async because it's fast? IDK if it will hold
             if (image_load_dirty)
             {
                 image_raw = ta::img_to_grayscale(ta::load_image(filepath.c_str()));
                 image_shape = {(float)image_raw.dimension(1), (float)image_raw.dimension(2)};
-                recompute_raw(filepath.c_str());
+                load_texture_from_tensor(textures[0], ta::to_img(image_raw));
                 image_load_dirty = false;
-                image_process_dirty = true;
-            }
-
-            // Same; Needs not to be async because it's fast? IDK if it will hold
-            if (image_process_dirty)
-            {
-                float
-                    exposure = powf(2.f, -exposure_slide*2),
-                    contrast = powf(2.f, -contrast_slide*2),
-                    blacks = blacks_slide,
-                    shadows = shadows_slide,
-                    highlights = highlights_slide,
-                    whites = whites_slide;
-
-                image_mapped = ta::tone_mapping(
-                    image_raw, exposure, contrast,
-                    blacks, shadows, highlights, whites
-                );
-                load_texture_from_tensor(textures[0], ta::to_img(image_mapped));
-                image_process_dirty = false;
                 pyramid_dirty = true;
-
             }
         }
         ImGui::EndChild();
 
-        if(ImGui::BeginChild("preprocessing", child_window_size, true, ImGuiWindowFlags_None))
+        if(ImGui::BeginChild("preprocessing", {18*em, 21.5f*em}, true, ImGuiWindowFlags_None))
         {
             if(show_image_button("preprocessing", textures[1], {ImGui::GetContentRegionAvail().x, 6*em}, image_shape))
                 big_display_idx = 1;
@@ -252,88 +167,155 @@ int main (int argc, char** argv)
                 beta_slide_default = 0,
                 sigma_slide_default = 1,
                 exposure_slide_default = 0,
-                contrast_slide_default = 0;
+                contrast_slide_default = 0,
+                blacks_slide_default = 0,
+                shadows_slide_default = 0,
+                highlights_slide_default = 0,
+                whites_slide_default = 0;
+
             static float
-                alpha_slide = 1,
-                beta_slide = -1,
-                sigma_slide = 2,
+                alpha_slide = 0.5,
+                beta_slide = -0.5,
+                sigma_slide = 1,
                 exposure_slide = 0,
-                contrast_slide = 0;
+                contrast_slide = 0.5,
+                blacks_slide = 0,
+                shadows_slide = 0,
+                highlights_slide = 0,
+                whites_slide = 0;
 
-            bool changed = false;
+            bool pyramid_changed = false;
+            bool mapping_changed = false;
 
-            changed |= show_slider(
-                "texture##alpha", &alpha_slide,
+            pyramid_changed |= show_slider(
+                "texture", &alpha_slide,
                 -1.f, 1.0f, alpha_slide_default,
                 "Double click on the label to reset the slider.\n\n"
                 "Manipulate the strength of fine details in the image."
             );
 
-            changed |= show_slider(
-                "clarity##beta", &beta_slide,
+            pyramid_changed |= show_slider(
+                "clarity", &beta_slide,
                 -1.f, 1.0f, beta_slide_default,
                 "Double click on the label to reset the slider.\n\n"
                 "Manipulate the dynamic range of big features in the image"
             );
 
-            changed |= show_slider(
-                "threshold##sigma", &sigma_slide,
+            pyramid_changed |= show_slider(
+                "threshold", &sigma_slide,
                 0.f, 2.0f, sigma_slide_default,
                 "Double click on the label to reset the slider.\n\n"
                 "Choose the threshold between what's considered a detail (affected by texture)\n"
                 "and what's a big feature (affected by clarity)"
             );
 
-            changed |= show_slider(
+            mapping_changed |= show_slider(
                 "exposure", &exposure_slide,
                 -1.f, 1.0f, exposure_slide_default,
                 "Double click on the label to reset the slider."
             );
 
-            changed |= show_slider(
+            mapping_changed |= show_slider(
                 "contrast", &contrast_slide,
                 -1.f, 1.0f, contrast_slide_default,
                 "Double click on the label to reset the slider."
             );
 
-            static std::future<Tensor3f> done;
-            static bool waiting = false;
+            mapping_changed |= show_slider(
+                "blacks", &blacks_slide,
+                -1.f, 1.0f, blacks_slide_default,
+                "Double click on the label to reset the slider."
+            );
 
-            if (changed)
+            mapping_changed |= show_slider(
+                "shadows", &shadows_slide,
+                -1.f, 1.0f, shadows_slide_default,
+                "Double click on the label to reset the slider."
+            );
+
+            mapping_changed |= show_slider(
+                "highlights", &highlights_slide,
+                -1.f, 1.0f, highlights_slide_default,
+                "Double click on the label to reset the slider."
+            );
+
+            mapping_changed |= show_slider(
+                "whites", &whites_slide,
+                -1.f, 1.0f, whites_slide_default,
+                "Double click on the label to reset the slider."
+            );
+
+
+            if (pyramid_changed)
             {
                 big_display_idx = 1;
                 pyramid_dirty = true;
             }
 
-            if (!done.valid() || done.wait_for(0s) == std::future_status::ready)
+            if (mapping_changed)
             {
+                big_display_idx = 1;
+                mapping_dirty = true;
+            }
+
+            static std::future<Tensor3f> pyramid_done;
+            if (!pyramid_done.valid() || pyramid_done.wait_for(0s) == std::future_status::ready)
+            {
+                static bool waiting = false;
                 if (waiting)
                 {
-                    float
-                        exposure = powf(2.f, -exposure_slide*2),
-                        contrast = powf(2.f, -contrast_slide*2);
-                    image_filtered = ta::tone_mapping(done.get(), exposure, contrast, 0, 0, 0, 0);
-                    load_texture_from_tensor(textures[1], ta::to_img(image_filtered));
+                    image_filtered = pyramid_done.get();
                     waiting = false;
+                    // dirty the next step here
+                    mapping_dirty = true;
                 }
-                if (pyramid_dirty)
+                if (pyramid_dirty && image_raw.size())
                 {
                     float
                         sigma = sigma_slide*0.15,
                         alpha = expf(-alpha_slide*logf(4)),
                         beta = beta_slide + 1;
 
-                    done = std::async(std::launch::async, ta::pyramid, image_mapped, sigma, alpha, beta);
+                    pyramid_done = std::async(std::launch::async, ta::pyramid, image_raw, sigma, alpha, beta);
                     waiting = true;
                     pyramid_dirty = false;
                 }
-
             }
 
+            static std::future<Tensor3f> mapping_done;
+            if (!mapping_done.valid() || mapping_done.wait_for(0s) == std::future_status::ready)
+            {
+                static bool waiting = false;
+                if (waiting)
+                {
+                    image_mapped = mapping_done.get();
+                    load_texture_from_tensor(textures[1], ta::to_img(image_mapped));
+                    waiting = false;
+                    // dirty the next step here
+                }
+                if (mapping_dirty && image_filtered.size())
+                {
+                    float
+                        exposure = powf(2.f, -2*exposure_slide),
+                        contrast = powf(2.f, -2*contrast_slide),
+                        blacks = 0.125*blacks_slide,
+                        shadows = 0.25*shadows_slide,
+                        highlights = 0.25*highlights_slide,
+                        whites = 0.125*whites_slide;
+
+                    mapping_done = std::async(
+                        std::launch::async, ta::tone_mapping, image_filtered,
+                        exposure, contrast,
+                        blacks, shadows, highlights, whites
+                    );
+                    waiting = true;
+                    mapping_dirty = false;
+                }
+            }
         }
         ImGui::EndChild();
 
-        if(ImGui::BeginChild("rendering", child_window_size, true, ImGuiWindowFlags_None))
+        if(ImGui::BeginChild("rendering", {18*em, ImGui::GetContentRegionAvail().y}, true, ImGuiWindowFlags_None))
         {
             if(show_image_button("rendering", textures[2], {ImGui::GetContentRegionAvail().x, 6*em}, image_shape))
                 big_display_idx = 2;

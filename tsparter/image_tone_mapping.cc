@@ -7,6 +7,23 @@
 namespace ta
 {
 
+namespace
+{
+
+inline float smoothstep(float x)
+{
+    return x * x * x * (x * (x * 6 - 15) + 10);
+}
+
+inline float bell(float x, float low, float high)
+{
+    x = x < low ? low : (x > high ? high : x);
+    x = 2.f*(x-low)/(high-low);
+    return x < 1.f ? smoothstep(x) : smoothstep(2-x);
+}
+
+}
+
 Tensor3f tone_mapping(
     const Tensor3f& input,
     float exposure, float contrast,
@@ -14,28 +31,29 @@ Tensor3f tone_mapping(
 )
 {
     ta::Timeit time("tone_mapping");
-    return input.unaryExpr([&](float val) {
+
+    size_t RES=1023;
+    float lut[RES+1];
+
+    for (size_t i=0; i<=RES; i++)
+    {
+        float val = i/float(RES);
         val = powf(val, exposure);
         val = std::copysignf(powf(2.f*fabsf(val-0.5f), contrast)/2.f, val-0.5f) + 0.5f;
-        return val;
+        val = val
+            + blacks * bell(val, 0, 0.5)
+            + shadows * bell(val, 0, 0.75)
+            + highlights * bell(val, 0.25, 1)
+            + whites * bell(val, 0.5, 1)
+        ;
+        lut[i] = val < 0.f ? 0.f : (val > 1.f ? 1.f : val);
+    }
+
+    return input.unaryExpr([&](float val) {
+        int x = RES*val;
+        x = x < 0.f ? 0.f : (x > RES ? RES : x);
+        return lut[x];
     });
 }
 
 }
-
-
-
-/*
-s : 0...1
-s+contrast*s*(1-s)
-
-s == t+1
-
-t+1 + contrast*(t+1)*t
-
-x == (1/(t+1))
-x : 0...1
-
-x + contrast*x*(1-x)
-1/(t+1) + contrast * 1/(t+1) * (t/(t+1))
-*/
