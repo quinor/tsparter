@@ -1,6 +1,6 @@
 #include "tsparter/image_pyramid.hh"
 #include "tsparter/timeit.hh"
-#include "external/avx_mathfun.h"
+#include "external/sse_mathfun.h"
 
 #include <cmath>
 #include <x86intrin.h>
@@ -16,41 +16,40 @@ inline Tensor3f remap(const Tensor3f& e, const Tensor3f& m, float sigma, float a
 {
     ta::Timeit time("remap");
 
-    static_assert(M%8 == 0, "M has to be divisible by 8!");
-    size_t M8 = M/8;
+    static_assert(M%4 == 0, "M has to be divisible by 4!");
     size_t N = e.size();
 
-    __m256 ms[M8];
+    __m128 ms[M/4];
     Tensor3f ret(M, e.dimension(1), e.dimension(2));
 
-    for (size_t i=0; i<M; i+=8)
-        ms[i/8] = _mm256_load_ps(m.data() + i);
+    for (size_t i=0; i<M; i+=4)
+        ms[i/4] = _mm_load_ps(m.data() + i);
 
     const float* src = e.data();
     float* dst = ret.data();
 
-    const __m256 mask0 = _mm256_set1_ps(-0.f); // sign mask
-    const __m256 m_sigma = _mm256_set1_ps(sigma);
-    const __m256 m_alpha = _mm256_set1_ps(alpha);
-    const __m256 m_beta = _mm256_set1_ps(beta);
-    const __m256 m_1 = _mm256_set1_ps(logf(sigma) * (1.f-alpha));
-    const __m256 m_2 = _mm256_set1_ps(sigma*(1.f-beta));
+    const __m128 mask0 = _mm_set1_ps(-0.f); // sign mask
+    const __m128 m_sigma = _mm_set1_ps(sigma);
+    const __m128 m_alpha = _mm_set1_ps(alpha);
+    const __m128 m_beta = _mm_set1_ps(beta);
+    const __m128 m_1 = _mm_set1_ps(logf(sigma) * (1.f-alpha));
+    const __m128 m_2 = _mm_set1_ps(sigma*(1.f-beta));
     #pragma omp parallel for
     for (size_t i=0; i<N; i++)
     {
-        for (size_t j=0; j<M8; j++)
+        for (size_t j=0; j<M; j+=4)
         {
-            __m256 m = ms[j];
-            __m256 x = _mm256_set1_ps(src[i]) - m;
-            __m256 xs = _mm256_and_ps(mask0, x);
-            __m256 xa = _mm256_andnot_ps(mask0, x);
+            __m128 m = ms[j/4];
+            __m128 x = _mm_set1_ps(src[i]) - m;
+            __m128 xs = _mm_and_ps(mask0, x);
+            __m128 xa = _mm_andnot_ps(mask0, x);
 
-            __m256 ret = m + _mm256_or_ps(_mm256_mask_blend_ps(
-                _mm256_cmp_ps_mask(xa, m_sigma, _CMP_LT_OS),
-                _mm256_fmadd_ps(xa, m_beta, m_2),
-                exp256_ps(log256_ps(xa+1e-6f)*m_alpha + m_1)
+            __m128 ret = m + _mm_or_ps(_mm_blendv_ps(
+                _mm_fmadd_ps(xa, m_beta, m_2),
+                exp_ps(log_ps(xa+1e-6f)*m_alpha + m_1),
+                _mm_cmp_ps(xa, m_sigma, _CMP_LT_OS)
             ), xs);
-            _mm256_store_ps(&dst[j*8 + i*M], ret);
+            _mm_store_ps(&dst[j + i*M], ret);
         }
     }
 
@@ -62,7 +61,7 @@ inline Tensor3f downscale(const Tensor3f& input) noexcept
 {
     ta::Timeit time("downscale<M>");
 
-    static_assert(M%8 == 0, "M has to be divisible by 8!");
+    static_assert(M%4 == 0, "M has to be divisible by 4!");
     size_t W = input.dimension(1), H = input.dimension(2);
     size_t W2 = (W+1)/2, H2 = (H+1)/2;
 
@@ -72,23 +71,23 @@ inline Tensor3f downscale(const Tensor3f& input) noexcept
     float* dst = tmp.data();
     #pragma omp parallel for
     for (size_t j=0; j<W; j++)
-        for (size_t k=0; k<M; k+=8)
+        for (size_t k=0; k<M; k+=4)
         {
-            const __m256 f3 = _mm256_set1_ps(3.f);
+            const __m128 f3 = _mm_set1_ps(3.f);
 
-            __m256 x1 = _mm256_load_ps(src + k + j*M + 0*M*W);
-            __m256 x2 = x1;
+            __m128 x1 = _mm_load_ps(src + k + j*M + 0*M*W);
+            __m128 x2 = x1;
             for (size_t i=0; i<H2-1; i++)
             {
-                __m256 x3 = _mm256_load_ps(src + k + j*M + (i*2+1)*M*W);
-                __m256 x4 = _mm256_load_ps(src + k + j*M + (i*2+2)*M*W);
-                _mm256_store_ps(dst + k + j*M + i*M*W, x1*0.125f + x2*0.375f + x3*0.375f + x4*0.125f);
+                __m128 x3 = _mm_load_ps(src + k + j*M + (i*2+1)*M*W);
+                __m128 x4 = _mm_load_ps(src + k + j*M + (i*2+2)*M*W);
+                _mm_store_ps(dst + k + j*M + i*M*W, x1*0.125f + x2*0.375f + x3*0.375f + x4*0.125f);
                 x1 = x3;
                 x2 = x4;
             }
-            __m256 x3 = _mm256_load_ps(src + k + j*M + std::min(H2*2-1, H-1)*M*W);
-            __m256 x4 = x3;
-            _mm256_store_ps(dst + k + j*M + (H2-1)*M*W, x1*0.125f + x2*0.375f + x3*0.375f + x4*0.125f);
+            __m128 x3 = _mm_load_ps(src + k + j*M + std::min(H2*2-1, H-1)*M*W);
+            __m128 x4 = x3;
+            _mm_store_ps(dst + k + j*M + (H2-1)*M*W, x1*0.125f + x2*0.375f + x3*0.375f + x4*0.125f);
         }
 
     Tensor3f ret((int)M, (int)W2, (int)H2);
@@ -97,21 +96,21 @@ inline Tensor3f downscale(const Tensor3f& input) noexcept
     dst = ret.data();
     #pragma omp parallel for
     for (size_t i=0; i<H2; i++)
-        for (size_t k=0; k<M; k+=8)
+        for (size_t k=0; k<M; k+=4)
         {
-            __m256 x1 = _mm256_load_ps(src + k + 0*M + i*M*W);
-            __m256 x2 = x1;
+            __m128 x1 = _mm_load_ps(src + k + 0*M + i*M*W);
+            __m128 x2 = x1;
             for (size_t j=0; j<W2-1; j++)
             {
-                __m256 x3 = _mm256_load_ps(src + k + (j*2+1)*M + i*M*W);
-                __m256 x4 = _mm256_load_ps(src + k + (j*2+2)*M + i*M*W);
-                _mm256_store_ps(dst + k + j*M + i*M*W2, x1*0.125f + x2*0.375f + x3*0.375f + x4*0.125f);
+                __m128 x3 = _mm_load_ps(src + k + (j*2+1)*M + i*M*W);
+                __m128 x4 = _mm_load_ps(src + k + (j*2+2)*M + i*M*W);
+                _mm_store_ps(dst + k + j*M + i*M*W2, x1*0.125f + x2*0.375f + x3*0.375f + x4*0.125f);
                 x1 = x3;
                 x2 = x4;
             }
-            __m256 x3 = _mm256_load_ps(src + k + std::min(W2*2-1, W-1)*M + i*M*W);
-            __m256 x4 = x3;
-            _mm256_store_ps(dst + k + (W2-1)*M + i*M*W2, x1*0.125f + x2*0.375f + x3*0.375f + x4*0.125f);
+            __m128 x3 = _mm_load_ps(src + k + std::min(W2*2-1, W-1)*M + i*M*W);
+            __m128 x4 = x3;
+            _mm_store_ps(dst + k + (W2-1)*M + i*M*W2, x1*0.125f + x2*0.375f + x3*0.375f + x4*0.125f);
         }
 
     return ret;
@@ -177,18 +176,18 @@ inline Tensor3f downscale<1>(const Tensor3f& input) noexcept
 // - 2 - sub
 
 template<size_t OP>
-void mm256_store_op(__m256 val, float* addr)
+void mm128_store_op(__m128 val, float* addr)
 {
     static_assert(OP < 3, "0-3 operations supported only");
     if constexpr (OP == 0)
-        _mm256_store_ps(addr, val);
+        _mm_store_ps(addr, val);
     else
     {
-        __m256 old = _mm256_load_ps(addr);
+        __m128 old = _mm_load_ps(addr);
         if constexpr (OP == 1)
-            _mm256_store_ps(addr, old+val);
+            _mm_store_ps(addr, old+val);
         else
-            _mm256_store_ps(addr, old-val);
+            _mm_store_ps(addr, old-val);
     }
 }
 
@@ -283,7 +282,7 @@ inline void upscale(const Tensor3f& input, Tensor3f& output) noexcept
     {
         ta::Timeit time("upscale<M>");
 
-        static_assert(M%8 == 0, "M has to be divisible by 8!");
+        static_assert(M%4 == 0, "M has to be divisible by 4!");
         size_t W = output.dimension(1), H = output.dimension(2);
         size_t W2 = input.dimension(1), H2 = input.dimension(2);
 
@@ -293,66 +292,66 @@ inline void upscale(const Tensor3f& input, Tensor3f& output) noexcept
         #pragma omp parallel for
         for (size_t i=1; i<2*H2-1; i+=2)
             for (size_t j=1; j<2*W2-1; j+=2)
-                for (size_t k=0; k<M; k+=8)
+                for (size_t k=0; k<M; k+=4)
                 {
-                    __m256 lu = _mm256_load_ps(src + k + (j/2)*M + (i/2)*M*W2);
-                    __m256 ru = _mm256_load_ps(src + k + (j/2+1)*M + (i/2)*M*W2);
-                    __m256 ld = _mm256_load_ps(src + k + (j/2)*M + (i/2+1)*M*W2);
-                    __m256 rd = _mm256_load_ps(src + k + (j/2+1)*M + (i/2+1)*M*W2);
+                    __m128 lu = _mm_load_ps(src + k + (j/2)*M + (i/2)*M*W2);
+                    __m128 ru = _mm_load_ps(src + k + (j/2+1)*M + (i/2)*M*W2);
+                    __m128 ld = _mm_load_ps(src + k + (j/2)*M + (i/2+1)*M*W2);
+                    __m128 rd = _mm_load_ps(src + k + (j/2+1)*M + (i/2+1)*M*W2);
 
                     const float d9 = 9.f/16.f, d3 = 3.f/16.f, d1 = 1.f/16.f;
-                    mm256_store_op<OP>(lu*d9 + ru*d3 + ld*d3 + rd*d1, dst + k + j*M + i*M*W);
-                    mm256_store_op<OP>(lu*d3 + ru*d9 + ld*d1 + rd*d3, dst + k + (j+1)*M + i*M*W);
-                    mm256_store_op<OP>(lu*d3 + ru*d1 + ld*d9 + rd*d3, dst + k + j*M + (i+1)*M*W);
-                    mm256_store_op<OP>(lu*d1 + ru*d3 + ld*d3 + rd*d9, dst + k + (j+1)*M + (i+1)*M*W);
+                    mm128_store_op<OP>(lu*d9 + ru*d3 + ld*d3 + rd*d1, dst + k + j*M + i*M*W);
+                    mm128_store_op<OP>(lu*d3 + ru*d9 + ld*d1 + rd*d3, dst + k + (j+1)*M + i*M*W);
+                    mm128_store_op<OP>(lu*d3 + ru*d1 + ld*d9 + rd*d3, dst + k + j*M + (i+1)*M*W);
+                    mm128_store_op<OP>(lu*d1 + ru*d3 + ld*d3 + rd*d9, dst + k + (j+1)*M + (i+1)*M*W);
                 }
 
         // I don't ignore the borders. It's annoying.
-        for (size_t k=0; k<M; k+=8)
+        for (size_t k=0; k<M; k+=4)
         {
-            mm256_store_op<OP>(
-                _mm256_load_ps(src + k + M*(0 + 0*W2)), dst + k + M*(0 + 0*W));
-            if (W%2 == 0) mm256_store_op<OP>(
-                _mm256_load_ps(src + k + M*(W2-1 + 0*W2)), dst + k + M*(W-1 + 0*W));
-            if (H%2 == 0) mm256_store_op<OP>(
-                _mm256_load_ps(src + k + M*(0 + (H2-1)*W2)), dst + k + M*(0 + (H-1)*W));
-            if (W%2 == 0 && H%2 == 0) mm256_store_op<OP>(
-                _mm256_load_ps(src + k + M*(W2-1 + (H2-1)*W2)), dst + k + M*(W-1 + (H-1)*W));
+            mm128_store_op<OP>(
+                _mm_load_ps(src + k + M*(0 + 0*W2)), dst + k + M*(0 + 0*W));
+            if (W%2 == 0) mm128_store_op<OP>(
+                _mm_load_ps(src + k + M*(W2-1 + 0*W2)), dst + k + M*(W-1 + 0*W));
+            if (H%2 == 0) mm128_store_op<OP>(
+                _mm_load_ps(src + k + M*(0 + (H2-1)*W2)), dst + k + M*(0 + (H-1)*W));
+            if (W%2 == 0 && H%2 == 0) mm128_store_op<OP>(
+                _mm_load_ps(src + k + M*(W2-1 + (H2-1)*W2)), dst + k + M*(W-1 + (H-1)*W));
 
             for (size_t j=1; j<2*W2-1; j+=2)
             {
-                __m256 l, r;
+                __m128 l, r;
                 const float d3 = 3.f/4.f, d1 = 1.f/4.f;
 
-                l = _mm256_load_ps(src + k + M*(j/2 + 0*W2));
-                r = _mm256_load_ps(src + k + M*(j/2+1 + 0*W2));
-                mm256_store_op<OP>(l*d3 + r*d1, dst + k + M*(j + 0*W));
-                mm256_store_op<OP>(l*d1 + r*d3, dst + k + M*(j+1 + 0*W));
+                l = _mm_load_ps(src + k + M*(j/2 + 0*W2));
+                r = _mm_load_ps(src + k + M*(j/2+1 + 0*W2));
+                mm128_store_op<OP>(l*d3 + r*d1, dst + k + M*(j + 0*W));
+                mm128_store_op<OP>(l*d1 + r*d3, dst + k + M*(j+1 + 0*W));
 
                 if (H%2 == 0)
                 {
-                    l = _mm256_load_ps(src + k + M*(j/2 + (H2-1)*W2));
-                    r = _mm256_load_ps(src + k + M*(j/2+1 + (H2-1)*W2));
-                    mm256_store_op<OP>(l*d3 + r*d1, dst + k + M*(j + (H-1)*W));
-                    mm256_store_op<OP>(l*d1 + r*d3, dst + k + M*(j+1 + (H-1)*W));
+                    l = _mm_load_ps(src + k + M*(j/2 + (H2-1)*W2));
+                    r = _mm_load_ps(src + k + M*(j/2+1 + (H2-1)*W2));
+                    mm128_store_op<OP>(l*d3 + r*d1, dst + k + M*(j + (H-1)*W));
+                    mm128_store_op<OP>(l*d1 + r*d3, dst + k + M*(j+1 + (H-1)*W));
                 }
             }
             for (size_t i=1; i<2*H2-1; i+=2)
             {
-                __m256 u, d;
+                __m128 u, d;
                 const float d3 = 3.f/4.f, d1 = 1.f/4.f;
 
-                u = _mm256_load_ps(src + k + M*(0 + (i/2)*W2));
-                d = _mm256_load_ps(src + k + M*(0 + (i/2+1)*W2));
-                mm256_store_op<OP>(u*d3 + d*d1, dst + k + M*(0 + i*W));
-                mm256_store_op<OP>(u*d1 + d*d3, dst + k + M*(0 + (i+1)*W));
+                u = _mm_load_ps(src + k + M*(0 + (i/2)*W2));
+                d = _mm_load_ps(src + k + M*(0 + (i/2+1)*W2));
+                mm128_store_op<OP>(u*d3 + d*d1, dst + k + M*(0 + i*W));
+                mm128_store_op<OP>(u*d1 + d*d3, dst + k + M*(0 + (i+1)*W));
 
                 if (W%2 == 0)
                 {
-                    u = _mm256_load_ps(src + k + M*(W2-1 + (i/2)*W2));
-                    d = _mm256_load_ps(src + k + M*(W2-1 + (i/2+1)*W2));
-                    mm256_store_op<OP>(u*d3 + d*d1, dst + k + M*(W-1 + i*W));
-                    mm256_store_op<OP>(u*d1 + d*d3, dst + k + M*(W-1 + (i+1)*W));
+                    u = _mm_load_ps(src + k + M*(W2-1 + (i/2)*W2));
+                    d = _mm_load_ps(src + k + M*(W2-1 + (i/2+1)*W2));
+                    mm128_store_op<OP>(u*d3 + d*d1, dst + k + M*(W-1 + i*W));
+                    mm128_store_op<OP>(u*d1 + d*d3, dst + k + M*(W-1 + (i+1)*W));
                 }
             }
         }
@@ -386,8 +385,8 @@ Tensor3f pyramid(
 {
     ta::Timeit time("pyramid");
     const size_t N = 12;
-    const size_t M = 64; // M % 8 == 0
-    static_assert(M%8 == 0, "M has to be divisible by 8!");
+    const size_t M = 64; // M % 4 == 0
+    static_assert(M%4 == 0, "M has to be divisible by 4!");
 
     std::vector<Tensor3f> stack_base, stack_transformed;
     stack_base.reserve(N+1);

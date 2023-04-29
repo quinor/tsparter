@@ -1,5 +1,7 @@
 build
 .vscode
+main
+*.ini
 
 # Prerequisites
 *.d
