@@ -54,7 +54,10 @@ inline Tensor3f remap(const Tensor3f& e, const Tensor3f& m, float sigma, float a
 
             __m128 ret = m + _mm_or_ps(_mm_i32gather_ps(
                 lut,
-                _mm_cvtps_epi32(xa*float(LUT_SIZE)),
+                _mm_cvtps_epi32(
+                    _mm_round_ps(xa*float(LUT_SIZE-1),
+                    _MM_FROUND_TO_NEAREST_INT |_MM_FROUND_NO_EXC
+                )),
                 sizeof(float)
             ), xs);
             _mm_store_ps(&dst[j + i*M], ret);
