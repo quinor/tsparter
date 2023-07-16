@@ -89,7 +89,8 @@ int main (int argc, char** argv)
         int temp_big_display_idx = -1;
 
         static bool image_load_dirty = true;
-        static bool pyramid_dirty = false;
+        static bool pyramid_lo_dirty = false;
+        static bool pyramid_hi_dirty = false;
         static bool mapping_dirty = false;
 
         if(ImGui::BeginChild("loading", {18*em, 9*em}, true, ImGuiWindowFlags_None))
@@ -150,7 +151,7 @@ int main (int argc, char** argv)
                 image_shape = {(float)image_raw.dimension(1), (float)image_raw.dimension(2)};
                 load_texture_from_tensor(textures[0], ta::to_img(image_raw));
                 image_load_dirty = false;
-                pyramid_dirty = true;
+                pyramid_lo_dirty = true;
             }
         }
         ImGui::EndChild();
@@ -249,7 +250,7 @@ int main (int argc, char** argv)
             if (pyramid_changed)
             {
                 big_display_idx = 1;
-                pyramid_dirty = true;
+                pyramid_lo_dirty = true;
             }
 
             if (mapping_changed)
@@ -258,27 +259,60 @@ int main (int argc, char** argv)
                 mapping_dirty = true;
             }
 
-            static std::future<Tensor3f> pyramid_done;
-            if (!pyramid_done.valid() || pyramid_done.wait_for(0s) == std::future_status::ready)
+            static std::future<Tensor3f> pyramid_lo_done;
+            if (!pyramid_lo_done.valid() || pyramid_lo_done.wait_for(0s) == std::future_status::ready)
             {
                 static bool waiting = false;
                 if (waiting)
                 {
-                    image_filtered = pyramid_done.get();
+                    image_filtered = pyramid_lo_done.get();
                     waiting = false;
-                    // dirty the next step here
+                    // dirty the next steps here
                     mapping_dirty = true;
+                    pyramid_hi_dirty = true;
                 }
-                if (pyramid_dirty && image_raw.size())
+                if (pyramid_lo_dirty && image_raw.size())
                 {
                     float
                         sigma = sigma_slide*0.15,
                         alpha = expf(-alpha_slide*logf(4)),
                         beta = beta_slide + 1;
 
-                    pyramid_done = std::async(std::launch::async, ta::pyramid<64>, image_raw, sigma, alpha, beta);
+                    // copy the input so that recomputing the previous step will not produce artifacts
+                    static Tensor3f input_image;
+                    input_image = image_raw;
+
+                    pyramid_lo_done = std::async(std::launch::async, ta::pyramid<16>, input_image, sigma, alpha, beta);
                     waiting = true;
-                    pyramid_dirty = false;
+                    pyramid_lo_dirty = false;
+                }
+            }
+
+            static std::future<Tensor3f> pyramid_hi_done;
+            if (!pyramid_hi_done.valid() || pyramid_hi_done.wait_for(0s) == std::future_status::ready)
+            {
+                static bool waiting = false;
+                if (waiting)
+                {
+                    image_filtered = pyramid_hi_done.get();
+                    waiting = false;
+                    // dirty the next steps here
+                    mapping_dirty = true;
+                }
+                if (pyramid_hi_dirty && image_raw.size())
+                {
+                    float
+                        sigma = sigma_slide*0.15,
+                        alpha = expf(-alpha_slide*logf(4)),
+                        beta = beta_slide + 1;
+
+                    // copy the input so that recomputing the previous step will not produce artifacts
+                    static Tensor3f input_image;
+                    input_image = image_raw;
+
+                    pyramid_hi_done = std::async(std::launch::async, ta::pyramid<64>, input_image, sigma, alpha, beta);
+                    waiting = true;
+                    pyramid_hi_dirty = false;
                 }
             }
 
@@ -303,8 +337,12 @@ int main (int argc, char** argv)
                         highlights = 0.25*highlights_slide,
                         whites = 0.125*whites_slide;
 
+                    // copy the input so that recomputing the previous step will not produce artifacts
+                    static Tensor3f input_image;
+                    input_image = image_filtered;
+
                     mapping_done = std::async(
-                        std::launch::async, ta::tone_mapping, image_filtered,
+                        std::launch::async, ta::tone_mapping, input_image,
                         exposure, contrast,
                         blacks, shadows, highlights, whites
                     );
