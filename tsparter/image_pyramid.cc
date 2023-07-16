@@ -19,6 +19,19 @@ inline Tensor3f remap(const Tensor3f& e, const Tensor3f& m, float sigma, float a
     static_assert(M%4 == 0, "M has to be divisible by 4!");
     size_t N = e.size();
 
+    const size_t LUT_SIZE = 256;
+
+    float lut[LUT_SIZE];
+
+    for (size_t i=0; i<LUT_SIZE; i++)
+    {
+        float x = i/float(LUT_SIZE-1);
+        lut[i] = x<sigma
+            ? expf(logf(x+1e-6f)*alpha + logf(sigma)*(1.f-alpha))
+            : x*beta + sigma*(1.f-beta)
+        ;
+    }
+
     __m128 ms[M/4];
     Tensor3f ret(M, e.dimension(1), e.dimension(2));
 
@@ -29,11 +42,6 @@ inline Tensor3f remap(const Tensor3f& e, const Tensor3f& m, float sigma, float a
     float* dst = ret.data();
 
     const __m128 mask0 = _mm_set1_ps(-0.f); // sign mask
-    const __m128 m_sigma = _mm_set1_ps(sigma);
-    const __m128 m_alpha = _mm_set1_ps(alpha);
-    const __m128 m_beta = _mm_set1_ps(beta);
-    const __m128 m_1 = _mm_set1_ps(logf(sigma) * (1.f-alpha));
-    const __m128 m_2 = _mm_set1_ps(sigma*(1.f-beta));
     #pragma omp parallel for
     for (size_t i=0; i<N; i++)
     {
@@ -44,10 +52,10 @@ inline Tensor3f remap(const Tensor3f& e, const Tensor3f& m, float sigma, float a
             __m128 xs = _mm_and_ps(mask0, x);
             __m128 xa = _mm_andnot_ps(mask0, x);
 
-            __m128 ret = m + _mm_or_ps(_mm_blendv_ps(
-                _mm_fmadd_ps(xa, m_beta, m_2),
-                exp_ps(log_ps(xa+1e-6f)*m_alpha + m_1),
-                _mm_cmp_ps(xa, m_sigma, _CMP_LT_OS)
+            __m128 ret = m + _mm_or_ps(_mm_i32gather_ps(
+                lut,
+                _mm_cvtps_epi32(xa*float(LUT_SIZE)),
+                sizeof(float)
             ), xs);
             _mm_store_ps(&dst[j + i*M], ret);
         }
@@ -178,7 +186,7 @@ inline Tensor3f downscale<1>(const Tensor3f& input) noexcept
 template<size_t OP>
 void mm128_store_op(__m128 val, float* addr)
 {
-    static_assert(OP < 3, "0-3 operations supported only");
+    static_assert(OP < 3, "0-2 operations supported only");
     if constexpr (OP == 0)
         _mm_store_ps(addr, val);
     else
@@ -194,7 +202,7 @@ void mm128_store_op(__m128 val, float* addr)
 template<size_t OP>
 void store_op(float val, float* addr)
 {
-    static_assert(OP < 3, "0-3 operations supported only");
+    static_assert(OP < 3, "0-2 operations supported only");
     if constexpr (OP == 0)
         *addr = val;
     else
@@ -380,13 +388,13 @@ inline void combine(const Tensor3f& transformed, Tensor3f& base)
     }
 }
 
-Tensor3f pyramid(
-    const Tensor3f& input, float sigma, float alpha, float beta)
+template <size_t M>
+Tensor3f pyramid(const Tensor3f& input, float sigma, float alpha, float beta)
 {
+    static_assert(M%4 == 0, "M has to be divisible by 4!");
+
     ta::Timeit time("pyramid");
     const size_t N = 12;
-    const size_t M = 64; // M % 4 == 0
-    static_assert(M%4 == 0, "M has to be divisible by 4!");
 
     std::vector<Tensor3f> stack_base, stack_transformed;
     stack_base.reserve(N+1);
@@ -428,5 +436,11 @@ Tensor3f pyramid(
         Eigen::array<Eigen::Index, 3>{1, ret.dimension(1), ret.dimension(2)}
     );
 }
+
+template
+Tensor3f pyramid<16>(const Tensor3f& input, float sigma, float alpha, float beta);
+
+template
+Tensor3f pyramid<64>(const Tensor3f& input, float sigma, float alpha, float beta);
 
 }

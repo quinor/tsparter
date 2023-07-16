@@ -49,11 +49,14 @@ Tensor3f tone_mapping(
         lut[i] = val < 0.f ? 0.f : (val > 1.f ? 1.f : val);
     }
 
-    return input.unaryExpr([&](float val) {
+    // explicitly materialize to avoid UB by having the lambda access lut after the outer
+    // function had exitted
+    Tensor3f ret = input.unaryExpr([&](float val) {
         int x = RES*val;
-        x = x < 0.f ? 0.f : (x > RES ? RES : x);
+        x = x < 0 ? 0 : (x > RES ? RES : x);
         return lut[x];
     });
+    return ret;
 }
 
 }

@@ -276,7 +276,7 @@ int main (int argc, char** argv)
                         alpha = expf(-alpha_slide*logf(4)),
                         beta = beta_slide + 1;
 
-                    pyramid_done = std::async(std::launch::async, ta::pyramid, image_raw, sigma, alpha, beta);
+                    pyramid_done = std::async(std::launch::async, ta::pyramid<64>, image_raw, sigma, alpha, beta);
                     waiting = true;
                     pyramid_dirty = false;
                 }

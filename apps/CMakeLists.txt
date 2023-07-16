@@ -1,3 +1,6 @@
+find_package(Sanitizers REQUIRED)
+
+
 add_library(gui STATIC
     gui.cc
     gui.hh
@@ -21,4 +24,5 @@ foreach(app_src ${apps})
         RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}
     )
     target_link_libraries(${binary} ${libraries})
+    # add_sanitizers(${binary})
 endforeach()

@@ -47,7 +47,7 @@ public:
     }
 
 private:
-    const static bool PRINT_TIMINGS=false;
+    const static bool PRINT_TIMINGS = true;
     const time_point _start;
     std::string _label;
     std::vector<std::pair<time_point, std::string>> _intermediate;

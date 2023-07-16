@@ -36,7 +36,6 @@ Tensor3f img_to_grayscale(const Tensor3i& e)
         .reshape(Eigen::array<Eigen::Index, 3>{1, e.dimension(1), e.dimension(2)})
         .unaryExpr([](float val) {
             return val/255.f;
-            // return log(1.f+val)/log(256.f);
         });
 }
 
@@ -47,7 +46,6 @@ Tensor3i to_img(const Tensor3f& e)
         .unaryExpr([](float val) {
             float tmp = val < 0.f ? 0.f : (val > 1.f ? 1.f : val);
             return tmp*255.f;
-            // return exp(tmp*log(256.f))-1;
         })
         .template cast<uint8_t>()
         .broadcast(Eigen::array<Eigen::Index, 3>{3, 1, 1});
